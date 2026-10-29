@@ -25,7 +25,7 @@
   .panel { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; align-self:start; }
   .panel h3 { font-size:.95rem; margin:14px 0 6px; }
   .panel h3:first-child { margin-top:0; }
-  label.row { display:grid; grid-template-columns: 92px 1fr 44px; align-items:center; gap:6px; margin:3px 0; }
+  label.row { display:grid; grid-template-columns: 92px 1fr 52px; align-items:center; gap:6px; margin:3px 0; }
   label.row output { text-align:right; font-variant-numeric:tabular-nums; }
   .chk { display:flex; flex-wrap:wrap; gap:4px 12px; }
   select, button { font:inherit; }
@@ -55,6 +55,8 @@
   <div class="panel">
     <h3>관절경</h3>
     <label class="row">포털 <select id="portal"><option value="AL">전외측(AL)</option><option value="AM">전내측(AM)</option></select><span></span></label>
+    <label class="row">포털 높이 <input type="range" id="pz" min="0" max="25" step="1" value="10"><output id="pzV"></output></label>
+    <label class="row">슬개건에서 <input type="range" id="px" min="0" max="15" step="1" value="4"><output id="pxV"></output></label>
     <label class="row">30° 렌즈 방향 <input type="range" id="roll" min="-180" max="180" value="180"><output id="rollV"></output></label>
     <label class="row">삽입 깊이 <input type="range" id="depth" min="5" max="90" value="40"><output id="depthV"></output></label>
     <div><button id="aimLat">외측 고평부 보기</button> <button id="aimRoots">근부 보기</button></div>
@@ -73,6 +75,7 @@
     <table id="ttable"></table>
     <ul class="help">
       <li>관절경 화면: 끌기 = 경 방향, 휠 = 깊이, Q/E = 렌즈 회전</li>
+      <li>포털 높이 = 외측 고평부 관절면 위 거리, 슬개건에서 = 슬개건 가장자리로부터의 거리</li>
       <li>Shift + 클릭(두 화면 모두) = 선택한 터널 입구를 그 자리로 이동</li>
       <li>방위 0° = 전방, + = 내측. 경사 = 고평부와 이루는 각</li>
       <li>골교 = 두 터널 벽 사이 최소 거리(경골 안 전 구간)</li>
@@ -314,7 +317,15 @@ function syncScopeUI() {
 }
 $("roll").oninput = (e) => { scope.roll = +e.target.value; syncScopeUI(); };
 $("depth").oninput = (e) => { scope.depth = +e.target.value; syncScopeUI(); };
-$("portal").onchange = (e) => { scope.P.copy(V(e.target.value === "AL" ? meta.portal_AL : meta.portal_AM)); aim(latTarget, 21); };
+// portal = patellar tendon edge (AL: lateral edge, AM: medial edge) + offset away from it, height above lateral plateau
+function setPortal() {
+  const AL = $("portal").value === "AL", off = +$("px").value, h = +$("pz").value;
+  const edge = AL ? meta.portal_AL[0] + 4 : meta.portal_AM[0] - 4;
+  scope.P.set(AL ? edge - off : edge + off, meta.portal_AL[1], meta.H_lat + h);
+  $("pzV").textContent = h + " mm"; $("pxV").textContent = off + " mm";
+  aim(latTarget, 21);
+}
+$("portal").onchange = setPortal; $("pz").oninput = setPortal; $("px").oninput = setPortal;
 $("aimLat").onclick = () => aim(latTarget, 21);
 $("aimRoots").onclick = () => aim(rootTarget, 30);
 const pose = () => { $("flexV").textContent = $("flex").value + "°"; $("varusV").textContent = $("varus").value + "°"; poseFemur(+$("flex").value, +$("varus").value); };
@@ -392,7 +403,7 @@ function frame() {
 // initial state
 extCam.position.set(meta.spine_x - 120, meta.y_c - 170, meta.H_lat + 140);
 orbit.target.set(meta.spine_x - 10, meta.y_c, meta.H_lat); orbit.update();
-applyVis(); pose(); aim(latTarget, 21); syncTunnelUI(); updateTunnels();
+applyVis(); pose(); setPortal(); syncTunnelUI(); updateTunnels();
 frame();
 window.__sim = { pickName, scopeCam, scope, tunnels, aim, latTarget, rootTarget, extCam, orbit, objs, meta, THREE };
 </script>
