@@ -1,0 +1,101 @@
+<!doctype html>
+<!-- 외측 반월상연골 동종이식(LM MAT) 후보 2종의 MRI 기반 3D 가상 거치 비교 보고 페이지 -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LM MAT 이식편 비교</title>
+<style>
+  :root { --fg:#1f2328; --mute:#57606a; --line:#d0d7de; --bg:#ffffff; --card:#f6f8fa; --a:#2b6cb0; --b:#d97706; --ok:#1a7f37; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg:#e6edf3; --mute:#9198a1; --line:#3d444d; --bg:#0d1117; --card:#161b22; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 "Pretendard","Malgun Gothic","Apple SD Gothic Neo",sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:28px 16px 64px; }
+  h1 { font-size:1.65rem; margin:0 0 4px; }
+  h2 { font-size:1.2rem; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .sub { color:var(--mute); margin:0 0 20px; }
+  .verdict { background:var(--card); border-left:5px solid var(--b); padding:16px 18px; border-radius:6px; }
+  .verdict strong { color:var(--b); }
+  table { border-collapse:collapse; width:100%; font-size:.95rem; }
+  th, td { border:1px solid var(--line); padding:7px 10px; text-align:center; }
+  th { background:var(--card); }
+  td:first-child, th:first-child { text-align:left; }
+  .wrap { overflow-x:auto; }
+  .a { color:var(--a); font-weight:600; } .b { color:var(--b); font-weight:600; }
+  img { max-width:100%; height:auto; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  iframe { width:100%; height:620px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  .note { color:var(--mute); font-size:.9rem; }
+  ul { padding-left:1.2em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>외측 반월상연골 동종이식 — 이식편 후보 비교</h1>
+  <p class="sub">36세 남성 · 좌측 · discoid 반월상연골 절제술(20년 전) 및 ACL 재건술(6년 전) 후 · 재치환 ACL 재건술 + LM MAT 예정</p>
+
+  <div class="verdict">
+    <p style="margin:0"><strong>권장: B (AlloSource, fresh-frozen aseptic)</strong></p>
+    <ul style="margin:8px 0 0">
+      <li>ML 폭은 두 이식편이 39 mm로 같다. AP 길이만 A 37 mm, B 39 mm로 2 mm 차이가 나며, 이는 MRI 절편 간격(2 mm) 수준이다.</li>
+      <li>3D 가상 거치에서 경골 밖 돌출은 거의 같고(33 vs 36 mm²), 외측 고평부 피복은 B가 더 넓다(미피복 321 → 262 mm²). 환자의 외측 구획이 커서(잔존 연골 외연 AP 45 mm) B의 추가 2 mm는 해부학적으로 수용된다.</li>
+      <li>A는 라벨상 방사선 멸균이고 B는 무균 처리(말단 방사선 멸균 없음)이다. 크기 차이가 작으므로 이 처리 방식 차이가 선택을 가른다.</li>
+    </ul>
+  </div>
+
+  <h2>1. 이식편 라벨 정보</h2>
+  <div class="wrap"><table>
+    <tr><th></th><th class="a">A · Orthotech</th><th class="b">B · AlloSource (JRF Ortho)</th></tr>
+    <tr><td>조직</td><td>LT. Tibia Plateau (외측 반월상연골 + 골편)</td><td>Lateral Meniscus, Left</td></tr>
+    <tr><td>반월상연골 AP 길이</td><td>37 mm (D)</td><td>39 mm</td></tr>
+    <tr><td>반월상연골 ML 폭</td><td>39 mm (B)</td><td>39 mm</td></tr>
+    <tr><td>골편 길이 × 높이</td><td>47 × 23 mm (E, F)</td><td>51 × 23 mm (폭 19 mm)</td></tr>
+    <tr><td>처리 · 멸균</td><td>과산화수소·알코올 소독, <b>방사선 멸균</b></td><td>Fresh frozen, <b>aseptically processed</b></td></tr>
+  </table></div>
+  <p class="note">A 라벨의 A = 9.7 cm는 37 × 39 mm 반타원의 외연 호 길이(계산값 약 9.3 cm)와 맞아서 바깥 테두리 길이로 해석했다. 그래서 D = 3.7 cm를 AP 길이, B = 3.9 cm를 ML 폭으로 보았다. 조직은행에 확인이 필요하다.</p>
+
+  <h2>2. 환자 계측 (MRI 3D 복원)</h2>
+  <p>시상면 PD FS 2 mm 영상을 KneeMRI_Seg13(nnU-Net 13-class)으로 분할하고, RECON으로 0.5 mm 간격까지 보간해 3D로 복원했다. 계측은 외측 고평부 관절면 3 mm 아래 단면에서 했다.</p>
+  <div class="wrap"><table>
+    <tr><th>항목</th><th>값</th><th>비고</th></tr>
+    <tr><td>외측 경골극 정점 → 외측 고평부 경계 (ML)</td><td>35.5 mm</td><td>Pollard 폭 추정치</td></tr>
+    <tr><td>외측 고평부 최대 AP</td><td>48.5 mm</td><td>× 0.7 = Pollard 길이 추정치 33.9 mm</td></tr>
+    <tr><td>잔존 외측 반월상연골 외연 AP / ML</td><td>45.3 / 35.5 mm</td><td>전·후각은 남아 있고 체부는 대부분 절제됨</td></tr>
+    <tr><td>경골극선 위치의 경골 AP (골편 slot 길이)</td><td>47.8 mm</td><td>골편 A 47 mm, B 51 mm → B는 약 3 mm 다듬기</td></tr>
+  </table></div>
+
+  <h2>3. 크기 대비</h2>
+  <div class="wrap"><table>
+    <tr><th></th><th class="a">A</th><th class="b">B</th></tr>
+    <tr><td>ML: 이식편 − 환자 (35.5 mm)</td><td>+3.5 mm (+10%)</td><td>+3.5 mm (+10%)</td></tr>
+    <tr><td>AP: 이식편 − Pollard 추정 (33.9 mm)</td><td>+3.1 mm (+9%)</td><td>+5.1 mm (+15%)</td></tr>
+    <tr><td>AP: 이식편 − 잔존 연골 외연 (45.3 mm)</td><td>−8.3 mm</td><td>−6.3 mm</td></tr>
+    <tr><td>3D 거치 시 경골 밖 돌출 면적</td><td>33 mm²</td><td>36 mm²</td></tr>
+    <tr><td>외측 고평부 미피복 면적</td><td>321 mm²</td><td>262 mm²</td></tr>
+  </table></div>
+  <p class="note">Pollard 기준으로는 A가 더 가깝고, 환자 실제 구획 기준으로는 둘 다 작으며 B가 더 가깝다. 두 기준이 반대 방향이고 차이가 2 mm에 불과해서, 크기만으로는 우열이 뚜렷하지 않다.</p>
+
+  <h2>4. 축상면 가상 거치 (위에서 본 외측 고평부)</h2>
+  <img src="topview.png" alt="두 이식편 외연(실선)과 내연(점선), 골편(사각형)을 외측 고평부 단면(회색), 잔존 연골(녹색)에 겹친 그림">
+  <p class="note">회색은 경골 단면, 녹색 선은 잔존 외측 반월상연골, 실선 타원은 이식편 외연, 점선은 내연(체부 폭 11 mm 가정), 사각형은 골편(폭 8 mm로 다듬는다고 가정)이다. 빨간 점선은 외측 경골극선이다.</p>
+
+  <h2>5. 3D 뷰어</h2>
+  <p class="note">마우스로 회전하거나 확대할 수 있다. 범례를 클릭하면 A와 B를 전환하고 대퇴골을 켤 수 있다(처음에는 A만 표시).</p>
+  <iframe src="viewer3d.html" title="3D 가상 거치 뷰어" loading="lazy"></iframe>
+
+  <h2>6. 수술 전 확인할 점</h2>
+  <ul>
+    <li>Orthotech에 A/D 치수의 정의와 방사선 멸균 선량을 확인한다. 선량이 낮다면 크기 기준으로는 A도 충분하다.</li>
+    <li>이전 ACL 경골 고정물로 인한 금속 아티팩트가 경골 전방에 있다. 재치환 ACL 경골 터널과 LM 골편 slot이 경골극 주변에서 가까우므로 서로 간섭하지 않는지 CT로 확인한다.</li>
+    <li>잔존 연골은 discoid 반월상연골을 절제하고 남은 테두리여서, 정상 외측 반월상연골보다 외연이 클 수 있다.</li>
+  </ul>
+
+  <h2>한계</h2>
+  <ul class="note">
+    <li>분할 모델은 fold 1개이고 수술 후 무릎에서는 검증되지 않았다. 경골과 잔존 연골 경계는 눈으로 점검했다.</li>
+    <li>이식편 형상은 라벨 치수로 만든 반타원 C자 모형이며, 실제 이식편의 모양과 각부 위치는 반영하지 않았다.</li>
+    <li>Pollard 법은 원래 단순 방사선 사진용인데, 이 분석에서는 MRI 3D 계측값에 적용했다.</li>
+    <li>연구용 분석이며 임상 판단을 대신하지 않는다.</li>
+  </ul>
+</main>
+</body>
+</html>
