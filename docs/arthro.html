@@ -40,14 +40,16 @@
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+               "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.3/build/index.module.js" } }
 </script>
 </head>
 <body>
 <header>
-  <h1>관절경 터널 시뮬레이터 — 좌측 외측 구획</h1>
+  <h1>관절경 터널 시뮬레이터 — 좌측 무릎</h1>
   <p>환자 MRI 3D 모형 · 전외측 포털 · 30° 사시경 · figure-4 근사 &nbsp;|&nbsp; <a href="index.html">이식편 비교로 돌아가기</a></p>
   <p>근사 모형이다. 대퇴는 후과 원 중심 축으로 강체 회전(롤백 무시)하고, 활막·지방체 변형·관절액은 없다. 터널 기본 경사·방위는 임의 시작값이므로 실제 가이드 각도로 맞춰서 볼 것.</p>
+  <p>기구는 단순 형상이다. 탐침·파지기·관통기·조준 가이드는 실제 기구 사진의 자로 길이를 맞췄고, 셰이버·큐렛은 표준 치수다. 경과 기구는 뼈·반월상연골에 닿으면 멈추지만 연부조직 장력은 아직 없다.</p>
 </header>
 <div class="grid">
   <div class="pane" id="scopePane"><canvas id="scope"></canvas><div class="tag">관절경 화면</div><div class="hud" id="hud"></div><div id="loading">모형 불러오는 중…</div></div>
@@ -59,10 +61,17 @@
     <label class="row">슬개건에서 <input type="range" id="px" min="0" max="15" step="1" value="4"><output id="pxV"></output></label>
     <label class="row">30° 렌즈 방향 <input type="range" id="roll" min="-180" max="180" value="180"><output id="rollV"></output></label>
     <label class="row">삽입 깊이 <input type="range" id="depth" min="5" max="90" value="40"><output id="depthV"></output></label>
-    <div><button id="aimLat">외측 고평부 보기</button> <button id="aimRoots">근부 보기</button></div>
-    <h3>무릎 자세 (figure-4)</h3>
+    <div class="chk"><button id="pLat">외측 구획</button><button id="pLmRoot">LM 근부</button><button id="pMed">내측 구획</button><button id="pMmRoot">MM 후근</button></div>
+    <h3>무릎 자세</h3>
     <label class="row">굴곡 <input type="range" id="flex" min="0" max="110" value="90"><output id="flexV"></output></label>
-    <label class="row">내반 개방 <input type="range" id="varus" min="0" max="10" step="0.5" value="5"><output id="varusV"></output></label>
+    <label class="row">내반+ / 외반− <input type="range" id="varus" min="-10" max="10" step="0.5" value="5"><output id="varusV"></output></label>
+    <h3>기구</h3>
+    <label class="row">종류 <select id="tool"></select><span></span></label>
+    <label class="row">작업 포털 <select id="tportal"><option value="AM">전내측(AM)</option><option value="AL">전외측(AL)</option><option value="PM">후내측(PM)</option></select><span></span></label>
+    <label class="row">기구 깊이 <input type="range" id="tdepth" min="5" max="110" value="45"><output id="tdepthV"></output></label>
+    <label class="row">기구 회전 <input type="range" id="troll" min="-180" max="180" value="0"><output id="trollV"></output></label>
+    <div class="chk"><button id="toolAim">화면 중앙으로 겨누기</button><button id="guideToTunnel">가이드 → 선택 터널</button></div>
+    <p class="help" id="toolSrc" style="padding:0"></p>
     <h3>표시</h3>
     <div class="chk" id="vis"></div>
     <label class="row">이식편 <select id="graft"><option value="none">없음</option><option value="A">A Orthotech 37×39</option><option value="B">B AlloSource 39×39</option></select><span></span></label>
@@ -75,6 +84,7 @@
     <table id="ttable"></table>
     <ul class="help">
       <li>관절경 화면: 끌기 = 경 방향, 휠 = 깊이, Q/E = 렌즈 회전</li>
+      <li>Ctrl + 끌기 = 기구 방향, Ctrl + 휠 = 기구 깊이. 경과 기구는 뼈·반월상연골에 닿으면 멈춤</li>
       <li>포털 높이 = 외측 고평부 관절면 위 거리, 슬개건에서 = 슬개건 가장자리로부터의 거리</li>
       <li>Shift + 클릭(두 화면 모두) = 선택한 터널 입구를 그 자리로 이동</li>
       <li>방위 0° = 전방, + = 내측. 경사 = 고평부와 이루는 각</li>
@@ -86,6 +96,9 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { computeBoundsTree, acceleratedRaycast } from "three-mesh-bvh";
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;   // BVH: ray tests against the 90k-face meshes every frame
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const meta = await (await fetch("arthro/meta.json")).json();
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -103,7 +116,7 @@ const extCam = new THREE.PerspectiveCamera(40, 1, 1, 2000);
 const orbit = new OrbitControls(extCam, ce);
 
 // lights: scope = spotlight at the tip; ext = hemisphere + directional
-const tipLight = new THREE.SpotLight(0xffffff, 40, 0, Math.PI / 2.4, 0.5, 1);
+const tipLight = new THREE.SpotLight(0xfff1dc, 40, 0, Math.PI / 2.4, 0.5, 1);
 const tipFill = new THREE.PointLight(0xfff0ea, 4, 0, 1);
 scene.add(tipLight, tipLight.target, tipFill);
 const hemi = new THREE.HemisphereLight(0xffffff, 0x8a7a6a, 1.6);
@@ -119,7 +132,7 @@ const names = ["tibia", "femur", "patella", "lm_remnant", "mm", "acl", "pcl", "f
 const objs = {};
 await Promise.all(names.map(async (n) => {
   const g = await load(n);
-  g.traverse((o) => { if (o.isMesh) o.geometry.computeVertexNormals(); if (o.isMesh) o.material =wet(n === "fatpad" ? { roughness: 0.6, clearcoat: 0.3 } : {}); });
+  g.traverse((o) => { if (o.isMesh) { o.geometry.computeVertexNormals(); o.geometry.computeBoundsTree(); } if (o.isMesh) o.material =wet(n === "fatpad" ? { roughness: 0.6, clearcoat: 0.3 } : {}); });
   objs[n] = g;
 }));
 document.getElementById("loading").remove();
@@ -151,14 +164,17 @@ document.getElementById("graft").onchange = (e) => {
   applyVis();
 };
 
-// ---------- femur pose: flexion about the posterior-condyle axis, then varus opening about medial contact
+// ---------- femur pose: flexion about the posterior-condyle axis, then varus (+, pivot on medial contact)
+// or valgus (−, pivot on lateral contact) opening
 const fa = meta.flex_axis, pL = V(fa.p_lat), pM = V(fa.p_med), axis = pM.clone().sub(pL).normalize();
 const pivotV = V(meta.varus_pivot);
+const pivotVg = new THREE.Vector3(fa.p_lat[0], meta.y_c, meta.H_lat);
 function poseFemur(flexDeg, varusDeg) {
   const m = new THREE.Matrix4();
   const T = (v) => new THREE.Matrix4().makeTranslation(v.x, v.y, v.z);
   const flex = T(pL).multiply(new THREE.Matrix4().makeRotationAxis(axis, -THREE.MathUtils.degToRad(flexDeg))).multiply(T(pL.clone().negate()));
-  const varus = T(pivotV).multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(varusDeg))).multiply(T(pivotV.clone().negate()));
+  const pv = varusDeg >= 0 ? pivotV : pivotVg;
+  const varus = T(pv).multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(varusDeg))).multiply(T(pv.clone().negate()));
   m.multiply(varus).multiply(flex);
   femurGrp.matrixAutoUpdate = false; femurGrp.matrix.copy(m); femurGrp.matrixWorldNeedsUpdate = true;
 }
@@ -172,6 +188,18 @@ function aim(target, standoff = 22) {
   const v = target.clone().sub(scope.P); const L = v.length();
   scope.d.copy(v.normalize()); scope.depth = Math.max(5, L - standoff); scope.roll = 180; syncScopeUI();
 }
+// put the scope tip at `tip` and turn the 30° lens to face `look` as closely as possible
+function placeTip(tip, look) {
+  const v = tip.clone().sub(scope.P); scope.d.copy(v.clone().normalize()); scope.depth = v.length();
+  const want = look.clone().sub(tip).normalize(); let best = -2;
+  for (let r = -180; r < 180; r += 5) {
+    scope.roll = r; const { d, e1, e2 } = scopeBasis(); const rr = THREE.MathUtils.degToRad(r);
+    const u = e2.clone().multiplyScalar(Math.cos(rr)).addScaledVector(e1, Math.sin(rr));
+    const c = d.clone().multiplyScalar(Math.cos(Math.PI / 6)).addScaledVector(u, Math.sin(Math.PI / 6)).dot(want);
+    if (c > best) { best = c; var br = r; }
+  }
+  scope.roll = br; syncScopeUI();
+}
 function scopeBasis() {
   const d = scope.d; const e1 = new THREE.Vector3().crossVectors(d, Z).normalize(); const e2 = new THREE.Vector3().crossVectors(e1, d);
   return { d, e1, e2 };
@@ -181,7 +209,9 @@ function updateScopeCam() {
   const r = THREE.MathUtils.degToRad(scope.roll);
   const u = e2.clone().multiplyScalar(Math.cos(r)).addScaledVector(e1, Math.sin(r));
   const view = d.clone().multiplyScalar(Math.cos(Math.PI / 6)).addScaledVector(u, Math.sin(Math.PI / 6)).normalize();
-  const tip = scope.P.clone().addScaledVector(d, scope.depth);
+  const dEff = contactDepth(scope.P, d, scope.depth, 1.5);
+  scope.contact = dEff < scope.depth - 0.01;
+  const tip = scope.P.clone().addScaledVector(d, dEff);
   scopeCam.position.copy(tip); scopeCam.up.copy(e2); scopeCam.lookAt(tip.clone().add(view));
   tipLight.position.copy(tip); tipLight.target.position.copy(tip.clone().add(view)); tipFill.position.copy(tip);
   aeRay.set(tip, view); aeRay.far = 200;
@@ -189,11 +219,27 @@ function updateScopeCam() {
   const gain = THREE.MathUtils.clamp((hit ? hit.distance : 30) / 15, 0.3, 3);   // auto exposure (linear falloff)
   tipLight.intensity = 40 * gain; tipFill.intensity = 4 * gain;
   gizmo.update(tip, view);
-  document.getElementById("hud").textContent = `깊이 ${scope.depth.toFixed(0)} mm · 렌즈 ${scope.roll.toFixed(0)}°` + (hoverText ? `  ·  ${hoverText}` : "");
+  document.getElementById("hud").textContent = `깊이 ${dEff.toFixed(0)} mm${scope.contact ? " (접촉)" : ""} · 렌즈 ${scope.roll.toFixed(0)}°` + (hoverText ? `  ·  ${hoverText}` : "");
 }
 
 const aeRay = new THREE.Raycaster();
 const aeTargets = [objs.tibia, objs.femur, objs.lm_remnant, objs.mm];
+// shaft stops `clear` mm short of the first bone / meniscus / graft surface along its axis
+const solid = () => [objs.tibia, objs.femur, objs.mm, objs.lm_remnant, objs.graft_A, objs.graft_B].filter((o) => o.visible);
+const cRay = new THREE.Raycaster();
+function contactDepth(P, d, depth, clear) {
+  cRay.set(P, d); cRay.far = depth + clear;
+  const hit = cRay.intersectObjects(solid(), true)[0];
+  return hit ? Math.max(2, Math.min(depth, hit.distance - clear)) : depth;
+}
+
+// medial-side targets from the MM mesh: compartment centre and posterior root (posterior horn end nearest the midline)
+const mmPts = []; objs.mm.traverse((o) => { if (o.isMesh) { const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i += 3) mmPts.push(new THREE.Vector3().fromBufferAttribute(p, i)); } });
+const mmBox = new THREE.Box3().setFromPoints(mmPts), mmC = mmBox.getCenter(new THREE.Vector3());
+const medTarget = new THREE.Vector3(mmC.x + 4, mmC.y, mmBox.max.z + 3);
+const post = mmPts.filter((p) => p.y > mmC.y + 4); const xMin = Math.min(...post.map((p) => p.x));
+const mmRoot = post.filter((p) => p.x < xMin + 3).reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(post.filter((p) => p.x < xMin + 3).length);
+const tibBox = new THREE.Box3().setFromObject(objs.tibia);
 // ext-view gizmo: shaft line + view ray
 const gizmo = (() => {
   const shaftG = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -238,6 +284,7 @@ const tunnels = [
   { name: "재치환 ACL 경골", color: 0x7c3aed, entry: V(meta.old_acl_footprint), diam: 10, incl: 55, azim: 30, on: true },
   { name: "LM 전각 근부", color: 0x0ea5e9, entry: V(meta.lm_ant_root), diam: 4.5, incl: 50, azim: 20, on: true },
   { name: "LM 후각 근부", color: 0x16a34a, entry: V(meta.lm_post_root), diam: 4.5, incl: 45, azim: 15, on: true },
+  { name: "MM 후근 핀(2.4)", color: 0xe11d48, entry: mmRoot.clone(), diam: 2.4, incl: 50, azim: 25, on: false },
 ];
 const oldMark = new THREE.Mesh(new THREE.TorusGeometry(5, 0.35, 8, 40), new THREE.MeshBasicMaterial({ color: 0xcf222e }));
 oldMark.position.copy(V(meta.old_acl_footprint)).add(new THREE.Vector3(0, 0, 0.6)); scene.add(oldMark);
@@ -326,10 +373,25 @@ function setPortal() {
   aim(latTarget, 21);
 }
 $("portal").onchange = setPortal; $("pz").oninput = setPortal; $("px").oninput = setPortal;
-$("aimLat").onclick = () => aim(latTarget, 21);
-$("aimRoots").onclick = () => aim(rootTarget, 30);
-const pose = () => { $("flexV").textContent = $("flex").value + "°"; $("varusV").textContent = $("varus").value + "°"; poseFemur(+$("flex").value, +$("varus").value); };
+const pose = () => {
+  const v = +$("varus").value;
+  $("flexV").textContent = $("flex").value + "°"; $("varusV").textContent = (v > 0 ? "내반 " : v < 0 ? "외반 " : "") + Math.abs(v) + "°";
+  poseFemur(+$("flex").value, v);
+};
 $("flex").oninput = pose; $("varus").oninput = pose;
+// view presets = knee position + where the scope looks (diagnostic tour stations)
+function preset(flex, varus, target, standoff, look) {
+  $("flex").value = flex; $("varus").value = varus; pose();
+  if ($("portal").value !== "AL") { $("portal").value = "AL"; }
+  const keep = [+$("pz").value, +$("px").value];
+  scope.P.set(meta.portal_AL[0] + 4 - keep[1], meta.portal_AL[1], meta.H_lat + keep[0]);
+  if (look) placeTip(target, look); else aim(target, standoff);
+}
+$("pLat").onclick = () => preset(90, 5, latTarget, 21);
+$("pLmRoot").onclick = () => preset(90, 5, rootTarget, 30);
+$("pMed").onclick = () => preset(20, -5, medTarget.clone().add(new THREE.Vector3(-4, -14, 1)), 0, medTarget.clone().add(new THREE.Vector3(0, 10, -4)));
+// MM posterior root: tip under the MFC in the medial compartment, lens turned back toward the root
+$("pMmRoot").onclick = () => preset(20, -6, mmRoot.clone().add(new THREE.Vector3(2, -20, 5)), 0, mmRoot);
 
 // scope drag (pivot about the portal), wheel depth, Q/E lens roll
 let drag = null;
@@ -379,6 +441,119 @@ ce.addEventListener("pointerdown", (e) => {
   placeAt(new THREE.Vector2(((e.clientX - b.left) / b.width) * 2 - 1, -(((e.clientY - b.top) / b.height) * 2 - 1)), extCam);
 });
 
+// ---------- instruments: tip at the local origin, shaft running back along +Y (mm). Lengths from the ruler photos
+const steel = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, metalness: 0.25, roughness: 0.35 });
+const dark = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
+const cyl = (r, L, y0, mat = steel) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 20), mat); m.position.y = y0 + L / 2; return m; };
+const TOOLS = {
+  probe: { name: "탐침(probe)", src: "사진 #57 기준 · 축 142 mm, 갈고리 4 mm", build(g) {
+    g.add(cyl(1.5, 142, 1));
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 4, 12), steel); h.rotation.z = Math.PI / 2; h.position.set(-2, 0.5, 0); g.add(h);
+  } },
+  grasper: { name: "파지기(grasper)", src: "사진 #14 기준 · 축 126 mm, 턱 10 mm", build(g) {
+    g.add(cyl(1.5, 126, 10));
+    for (const s of [-1, 1]) { const j = new THREE.Mesh(new THREE.BoxGeometry(1.1, 10, 1.4), steel); j.position.set(s * 1.1, 5, 0); j.rotation.z = s * 0.12; g.add(j); }
+  } },
+  penetrator: { name: "봉합 관통기(penetrator)", src: "사진 #47 기준 · 축 131 mm, 부리 15 mm", build(g) {
+    g.add(cyl(1.5, 131, 15));
+    const c = new THREE.Mesh(new THREE.ConeGeometry(1.5, 15, 16), steel); c.rotation.x = Math.PI; c.position.y = 7.5; g.add(c);
+  } },
+  shaver: { name: "셰이버 4.5 mm", src: "표준 형상(사진 없음) · 직경 4.5 mm, 길이 130 mm", build(g) {
+    g.add(cyl(2.25, 128, 2.25)); const s = new THREE.Mesh(new THREE.SphereGeometry(2.25, 20, 12), steel); s.position.y = 2.25; g.add(s);
+    const w = new THREE.Mesh(new THREE.BoxGeometry(2.6, 5, 1), dark); w.position.set(0, 4.5, 1.9); g.add(w);
+  } },
+  curette: { name: "큐렛(curette)", src: "표준 형상 · 축 140 mm, 고리 4 mm", build(g) {
+    g.add(cyl(1.5, 140, 3.5));
+    const r = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.45, 8, 24), steel); r.rotation.y = Math.PI / 2; r.position.y = 1.8; g.add(r);
+  } },
+  knot: { name: "매듭 밀개(knot pusher)", src: "사진 #56 참고 · 축 120 mm", build(g) {
+    g.add(cyl(1.5, 120, 2.5));
+    const r = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.4, 8, 20), steel); r.position.y = 1.2; g.add(r);
+  } },
+  guide: { name: "경골 조준 가이드(AR-1510H)", src: "사진 #28 기준 · 팔 107 mm, 끝 갈고리 5 mm. 핀 방향 = 선택 터널 축", build(g) {
+    g.add(cyl(2, 107, 4));
+    const c = new THREE.Mesh(new THREE.ConeGeometry(1.4, 5, 12), steel); c.rotation.x = Math.PI; c.position.y = 2.5; g.add(c);
+  } },
+};
+const toolSel = $("tool");
+toolSel.add(new Option("없음", "none"));
+for (const [k, t] of Object.entries(TOOLS)) toolSel.add(new Option(t.name, k));
+const tool = { type: "none", P: new THREE.Vector3(), d: new THREE.Vector3(1, 0, 0), depth: 45, roll: 0, grp: new THREE.Group() };
+scene.add(tool.grp);
+// guide extras outside the joint: drill sleeve on the tunnel axis + arc back to the arm
+const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 40, 20), steel); scene.add(sleeve);
+let arc = null;
+function toolPortal(kind) {
+  if (kind === "AL") return V(meta.portal_AL);
+  if (kind === "AM") return V(meta.portal_AM);
+  return new THREE.Vector3(tibBox.max.x - 3, mmC.y + 8, mmBox.max.z + 5);   // posteromedial, behind the MCL at the joint line
+}
+function setTool(type) {
+  tool.type = type; tool.grp.clear();
+  if (type !== "none") TOOLS[type].build(tool.grp);
+  $("toolSrc").textContent = type === "none" ? "" : TOOLS[type].src;
+  tool.P.copy(toolPortal($("tportal").value));
+  aimToolAt(scopeCenterPoint() || medTarget);
+}
+function scopeCenterPoint() {
+  ray.setFromCamera(new THREE.Vector2(0, 0), scopeCam); ray.far = 300;
+  const hit = ray.intersectObjects(solid(), true)[0]; return hit ? hit.point : null;
+}
+function aimToolAt(p) {
+  const v = p.clone().sub(tool.P); tool.d.copy(v.clone().normalize()); tool.depth = v.length(); syncToolUI();
+}
+function syncToolUI() {
+  $("tdepth").value = tool.depth; $("tdepthV").textContent = tool.depth.toFixed(0);
+  $("troll").value = tool.roll; $("trollV").textContent = tool.roll + "°";
+}
+function updateTool() {
+  const on = tool.type !== "none";
+  tool.grp.visible = on; sleeve.visible = on && tool.type === "guide"; if (arc) arc.visible = sleeve.visible;
+  if (!on) return;
+  const dHit = contactDepth(tool.P, tool.d, tool.depth, 0.3);
+  const dEff = tool.type === "guide" ? tool.depth : dHit;
+  const blocked = tool.depth - dHit > 1;
+  const msg = TOOLS[tool.type].src + (blocked ? (tool.type === "guide"
+      ? ` · 직선 경로가 ${(tool.depth - dHit).toFixed(0)} mm 앞에서 뼈·반월상연골에 막힘(실제 가이드는 휜 끝으로 넘어감)`
+      : ` · ${(tool.depth - dHit).toFixed(0)} mm 앞에서 접촉으로 멈춤`) : "");
+  if ($("toolSrc").textContent !== msg) $("toolSrc").textContent = msg;
+  const tip = tool.P.clone().addScaledVector(tool.d, dEff);
+  tool.grp.position.copy(tip);
+  tool.grp.quaternion.setFromUnitVectors(yAxis, tool.d.clone().negate());
+  tool.grp.rotateY(THREE.MathUtils.degToRad(tool.roll));
+  if (tool.type === "guide") {
+    const t = cur(), u = tunnelDir(t);
+    const s0 = t.exit.clone().addScaledVector(u, 20);                       // sleeve sits on the cortex, outside the bone
+    sleeve.position.copy(s0); sleeve.quaternion.setFromUnitVectors(yAxis, u);
+    const handle = tip.clone().addScaledVector(tool.d, -111);                 // arm end (outside the portal)
+    const end = t.exit.clone().addScaledVector(u, 40);
+    const mid = handle.clone().add(end).multiplyScalar(0.5).add(new THREE.Vector3(0, 0, -25));
+    if (arc) { scene.remove(arc); arc.geometry.dispose(); }
+    arc = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(handle, mid, end), 24, 3, 8), steel); scene.add(arc);
+  }
+}
+toolSel.onchange = (e) => setTool(e.target.value);
+$("tportal").onchange = () => { tool.P.copy(toolPortal($("tportal").value)); aimToolAt(tool.P.clone().addScaledVector(tool.d, tool.depth)); };
+$("tdepth").oninput = (e) => { tool.depth = +e.target.value; syncToolUI(); };
+$("troll").oninput = (e) => { tool.roll = +e.target.value; syncToolUI(); };
+$("toolAim").onclick = () => { const p = scopeCenterPoint(); if (p) aimToolAt(p); };
+$("guideToTunnel").onclick = () => { if (tool.type !== "guide") { toolSel.value = "guide"; setTool("guide"); } aimToolAt(cur().entry); };
+// Ctrl + drag / wheel in the scope view steer the instrument about its portal
+let tdrag = null;
+cs.addEventListener("pointerdown", (e) => { if (e.ctrlKey && tool.type !== "none") { tdrag = { x: e.clientX, y: e.clientY }; e.stopImmediatePropagation(); } }, true);
+cs.addEventListener("pointermove", (e) => {
+  if (!tdrag) return;
+  const dx = (e.clientX - tdrag.x) * 0.003, dy = (e.clientY - tdrag.y) * 0.003; tdrag = { x: e.clientX, y: e.clientY };
+  const e1 = new THREE.Vector3().crossVectors(tool.d, Z).normalize();
+  tool.d.applyAxisAngle(Z, -dx).applyAxisAngle(e1, -dy).normalize(); e.stopImmediatePropagation();
+}, true);
+cs.addEventListener("pointerup", () => (tdrag = null), true);
+cs.addEventListener("wheel", (e) => {
+  if (!e.ctrlKey || tool.type === "none") return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  tool.depth = THREE.MathUtils.clamp(tool.depth - Math.sign(e.deltaY) * 1.5, 5, 140); syncToolUI();
+}, { capture: true, passive: false });
+
 // ---------- render loop
 function resize() {
   for (const [r, c] of [[rS, cs], [rE, ce]]) { const w = c.clientWidth, h = c.clientHeight; if (c.width !== Math.round(w * r.getPixelRatio())) r.setSize(w, h, false); }
@@ -386,7 +561,7 @@ function resize() {
 }
 const tibMats = []; tib.traverse((o) => o.isMesh && tibMats.push(o.material));
 function frame() {
-  resize(); updateScopeCam();
+  resize(); updateScopeCam(); updateTool();
   // scope pass
   gizmo.grp.visible = false; oldMark.visible = true; hemi.visible = sun.visible = false; tipLight.visible = tipFill.visible = true;
   scene.fog = scopeFog; scene.background = new THREE.Color(0x1a0705);
@@ -405,7 +580,7 @@ extCam.position.set(meta.spine_x - 120, meta.y_c - 170, meta.H_lat + 140);
 orbit.target.set(meta.spine_x - 10, meta.y_c, meta.H_lat); orbit.update();
 applyVis(); pose(); setPortal(); syncTunnelUI(); updateTunnels();
 frame();
-window.__sim = { pickName, scopeCam, scope, tunnels, aim, latTarget, rootTarget, extCam, orbit, objs, meta, THREE };
+window.__sim = { tool, setTool, aimToolAt, mmRoot, medTarget, $, pickName, scopeCam, scope, tunnels, aim, latTarget, rootTarget, extCam, orbit, objs, meta, THREE };
 </script>
 </body>
 </html>
