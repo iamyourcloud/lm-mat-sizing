@@ -35,6 +35,8 @@
   td:first-child, th:first-child { text-align:left; }
   .bad { color:var(--warn); font-weight:700; } .good { color:var(--ok); }
   .help { color:var(--mute); font-size:12.5px; margin:6px 0 0; padding-left:1.1em; }
+  .pad { display:grid; grid-template-columns: repeat(4, 1fr); gap:4px; margin:6px 0; }
+  .pad button { padding:6px 0; touch-action:none; user-select:none; }
   .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
   #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#aaa; }
 </style>
@@ -71,6 +73,10 @@
     <label class="row">기구 깊이 <input type="range" id="tdepth" min="5" max="110" value="45"><output id="tdepthV"></output></label>
     <label class="row">기구 회전 <input type="range" id="troll" min="-180" max="180" value="0"><output id="trollV"></output></label>
     <div class="chk"><button id="toolAim">화면 중앙으로 겨누기</button><button id="guideToTunnel">가이드 → 선택 터널</button></div>
+    <div class="pad">
+      <button data-steer="rotL" title="A">⟲</button><button data-steer="up" title="↑">▲</button><button data-steer="rotR" title="D">⟳</button><button data-steer="fwd" title="W">전진</button>
+      <button data-steer="left" title="←">◀</button><button data-steer="down" title="↓">▼</button><button data-steer="right" title="→">▶</button><button data-steer="back" title="S">후퇴</button>
+    </div>
     <p class="help" id="toolSrc" style="padding:0"></p>
     <h3>표시</h3>
     <div class="chk" id="vis"></div>
@@ -84,7 +90,8 @@
     <table id="ttable"></table>
     <ul class="help">
       <li>관절경 화면: 끌기 = 경 방향, 휠 = 깊이, Q/E = 렌즈 회전</li>
-      <li>Ctrl + 끌기 = 기구 방향, Ctrl + 휠 = 기구 깊이. 경과 기구는 뼈·반월상연골에 닿으면 멈춤</li>
+      <li>마우스는 관절경 전용. 기구는 화살표 = 방향, W/S = 전진·후퇴(Shift ×5), A/D = 회전, 또는 아래 버튼(누르고 있으면 반복)</li>
+      <li>뼈에 닿으면 멈추고, 반월상연골·이식편은 3 mm까지 눌림</li>
       <li>포털 높이 = 외측 고평부 관절면 위 거리, 슬개건에서 = 슬개건 가장자리로부터의 거리</li>
       <li>Shift + 클릭(두 화면 모두) = 선택한 터널 입구를 그 자리로 이동</li>
       <li>방위 0° = 전방, + = 내측. 경사 = 고평부와 이루는 각</li>
@@ -218,11 +225,16 @@ function updateScopeCam() {
   const hit = aeRay.intersectObjects(aeTargets, true)[0];
   const gain = THREE.MathUtils.clamp((hit ? hit.distance : 30) / 15, 0.3, 3);   // auto exposure (linear falloff)
   tipLight.intensity = 40 * gain; tipFill.intensity = 4 * gain;
+  fatRay.set(tip, Z); fatRay.far = 200;
+  const inFat = fatRay.intersectObject(objs.fatpad, true).length % 2 === 1;
+  postMat.uniforms.fat.value += ((inFat ? 1 : 0) - postMat.uniforms.fat.value) * 0.35;
+  scope.inFat = inFat;
   gizmo.update(tip, view);
-  document.getElementById("hud").textContent = `깊이 ${dEff.toFixed(0)} mm${scope.contact ? " (접촉)" : ""} · 렌즈 ${scope.roll.toFixed(0)}°` + (hoverText ? `  ·  ${hoverText}` : "");
+  document.getElementById("hud").textContent = (inFat ? "지방체 안 — 시야 가림 · " : "") + `깊이 ${dEff.toFixed(0)} mm${scope.contact ? " (접촉)" : ""} · 렌즈 ${scope.roll.toFixed(0)}°` + (hoverText ? `  ·  ${hoverText}` : "");
 }
 
 const aeRay = new THREE.Raycaster();
+const fatRay = new THREE.Raycaster();
 const aeTargets = [objs.tibia, objs.femur, objs.lm_remnant, objs.mm];
 // shaft stops `clear` mm short of the first bone / meniscus / graft surface along its axis
 const solid = () => [objs.tibia, objs.femur, objs.mm, objs.lm_remnant, objs.graft_A, objs.graft_B].filter((o) => o.visible);
@@ -231,6 +243,16 @@ function contactDepth(P, d, depth, clear) {
   cRay.set(P, d); cRay.far = depth + clear;
   const hit = cRay.intersectObjects(solid(), true)[0];
   return hit ? Math.max(2, Math.min(depth, hit.distance - clear)) : depth;
+}
+// instruments: hard stop on bone, soft (up to `push` mm) on menisci / grafts
+const KO_SOLID = { tibia: "경골", femur: "대퇴과", mm: "내측 반월상연골", lm_remnant: "외측 반월상연골", graft_A: "이식편", graft_B: "이식편" };
+function contact(P, d, depth, clear, push) {
+  cRay.set(P, d); cRay.far = depth + push + clear;
+  const hit = cRay.intersectObjects(solid(), true)[0];
+  if (!hit || depth <= hit.distance - clear) return { d: depth, what: "" };
+  let o = hit.object; while (o && !Object.values(objs).includes(o)) o = o.parent;
+  const k = Object.keys(objs).find((n) => objs[n] === o), soft = !["tibia", "femur"].includes(k);
+  return { d: Math.max(2, Math.min(depth, hit.distance + (soft ? push : -clear))), what: KO_SOLID[k], soft };
 }
 
 // medial-side targets from the MM mesh: compartment centre and posterior root (posterior horn end nearest the midline)
@@ -261,13 +283,18 @@ const rt = new THREE.WebGLRenderTarget(1024, 1024, { samples: 4 });
 rt.texture.colorSpace = THREE.SRGBColorSpace;
 const K = 0.32;
 const postMat = new THREE.ShaderMaterial({
-  uniforms: { tDiffuse: { value: rt.texture }, k: { value: K } },
+  uniforms: { tDiffuse: { value: rt.texture }, k: { value: K }, fat: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float k; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float k; uniform float fat; varying vec2 vUv;
+    float hash(vec2 q){ return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){ vec2 p = vUv*2.0-1.0; float r = length(p);
       if (r > 0.98) { gl_FragColor = vec4(0.0,0.0,0.0,1.0); return; }
       vec2 s = p*(1.0 + k*r*r)/(1.0 + k);
       vec3 c = texture2D(tDiffuse, s*0.5+0.5).rgb;
+      vec2 q = p * 5.0, i0 = floor(q), f = fract(q); f = f * f * (3.0 - 2.0 * f);   // smooth value noise = fat lobules
+      float n = mix(mix(hash(i0), hash(i0 + vec2(1.0, 0.0)), f.x), mix(hash(i0 + vec2(0.0, 1.0)), hash(i0 + vec2(1.0, 1.0)), f.x), f.y);
+      vec3 fatc = vec3(0.93, 0.80, 0.42) * (0.75 + 0.25 * n) * (1.0 - 0.35 * r);   // lens buried in fat: yellow, no image
+      c = mix(c, fatc, fat);
       c *= smoothstep(0.98, 0.80, r)*0.55 + 0.45;
       float notch = step(0.93, r) * step(abs(atan(p.x, p.y)), 0.05);
       c = mix(c, vec3(1.0), notch);
@@ -388,7 +415,7 @@ function preset(flex, varus, target, standoff, look) {
   if (look) placeTip(target, look); else aim(target, standoff);
 }
 $("pLat").onclick = () => preset(90, 5, latTarget, 21);
-$("pLmRoot").onclick = () => preset(90, 5, rootTarget, 30);
+$("pLmRoot").onclick = () => preset(90, 5, rootTarget, 22);   // 22 mm standoff keeps the lens past the fat pad
 $("pMed").onclick = () => preset(20, -5, medTarget.clone().add(new THREE.Vector3(-4, -14, 1)), 0, medTarget.clone().add(new THREE.Vector3(0, 10, -4)));
 // MM posterior root: tip under the MFC in the medial compartment, lens turned back toward the root
 $("pMmRoot").onclick = () => preset(20, -6, mmRoot.clone().add(new THREE.Vector3(2, -20, 5)), 0, mmRoot);
@@ -441,39 +468,55 @@ ce.addEventListener("pointerdown", (e) => {
   placeAt(new THREE.Vector2(((e.clientX - b.left) / b.width) * 2 - 1, -(((e.clientY - b.top) / b.height) * 2 - 1)), extCam);
 });
 
-// ---------- instruments: tip at the local origin, shaft running back along +Y (mm). Lengths from the ruler photos
+// ---------- instruments: tip at the local origin, shaft running back along +Y (mm).
+// Lengths read off the ruler in each photo (#nn = photo index in Downloads\관절경기구, about ±5 mm)
 const steel = new THREE.MeshStandardMaterial({ color: 0xc9cdd2, metalness: 0.25, roughness: 0.35 });
 const dark = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
 const cyl = (r, L, y0, mat = steel) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 20), mat); m.position.y = y0 + L / 2; return m; };
+const tube = (pts, r) => new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p))), 24, r, 10), steel);
+const box = (w, h, d, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), steel); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); return m; };
+const cone = (r, h, y, flip = true) => { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 16), steel); if (flip) m.rotation.x = Math.PI; m.position.y = y; return m; };
+// jaw pair hinged at y = L: lower jaw fixed, upper jaw opened by `open`, whole pair tilted up by `up` (radians)
+function jaws(g, L, w, open, up = 0, teeth = false) {
+  const j = new THREE.Group(); j.position.y = L; j.rotation.x = up;
+  j.add(box(w, L, 0.9, 0, -L / 2, -0.5));
+  const top = new THREE.Group(); top.rotation.x = -open; top.add(box(w, L, 0.9, 0, -L / 2, 0.5)); j.add(top);
+  if (teeth) for (let k = 1; k < L; k += 2) j.add(box(w, 0.5, 0.4, 0, -k, 0));
+  g.add(j);
+}
+const hookTip = (h, r) => tube([[0, 10, 0], [0, 3, 0], [-h * 0.45, 0.4, 0], [-h, 0, 0]], r);
 const TOOLS = {
-  probe: { name: "탐침(probe)", src: "사진 #57 기준 · 축 142 mm, 갈고리 4 mm", build(g) {
-    g.add(cyl(1.5, 142, 1));
-    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 4, 12), steel); h.rotation.z = Math.PI / 2; h.position.set(-2, 0.5, 0); g.add(h);
-  } },
-  grasper: { name: "파지기(grasper)", src: "사진 #14 기준 · 축 126 mm, 턱 10 mm", build(g) {
-    g.add(cyl(1.5, 126, 10));
-    for (const s of [-1, 1]) { const j = new THREE.Mesh(new THREE.BoxGeometry(1.1, 10, 1.4), steel); j.position.set(s * 1.1, 5, 0); j.rotation.z = s * 0.12; g.add(j); }
-  } },
-  penetrator: { name: "봉합 관통기(penetrator)", src: "사진 #47 기준 · 축 131 mm, 부리 15 mm", build(g) {
-    g.add(cyl(1.5, 131, 15));
-    const c = new THREE.Mesh(new THREE.ConeGeometry(1.5, 15, 16), steel); c.rotation.x = Math.PI; c.position.y = 7.5; g.add(c);
-  } },
+  probe: { name: "탐침", src: "#57 · 축 142 mm, 갈고리 4 mm", build(g) { g.add(cyl(1.5, 132, 10), hookTip(4, 0.9)); } },
+  probeL: { name: "탐침(긴 갈고리)", src: "#59·#61 · 축 140 mm, 갈고리 7 mm", build(g) { g.add(cyl(1.6, 130, 10), hookTip(7, 1.0)); } },
+  fineHook: { name: "미세 갈고리", src: "#06·#07 · 축 150 mm(가늘게 좁아짐), 갈고리 2.5 mm", build(g) { g.add(cyl(1.1, 140, 10), hookTip(2.5, 0.6)); } },
+  sutureHook: { name: "곡형 봉합 갈고리", src: "#54 · 축 125 mm, 초승달 끝 8 mm", build(g) {
+    g.add(cyl(1.3, 115, 12), tube([[0, 13, 0], [0, 6, 0], [-1.5, 2, 0], [-4.5, 1, 0], [-7, 3.5, 0]], 0.55)); } },
+  punch: { name: "직선 바스켓 펀치", src: "#08·#65 · 축 130 mm, 턱 7 mm", build(g) { g.add(cyl(1.7, 123, 7)); jaws(g, 7, 2.6, 0.25); } },
+  punchUp: { name: "상향 바스켓 펀치", src: "#02·#03·#48 · 축 130 mm, 턱 6 mm 위로 35°", build(g) { g.add(cyl(1.7, 124, 6)); jaws(g, 6, 2.4, 0.3, 0.6); } },
+  grasper: { name: "미세 파지기", src: "#14~16 · 축 126 mm, 턱 10 mm", build(g) { g.add(cyl(1.5, 116, 10)); jaws(g, 10, 1.6, 0.2); } },
+  grasperR: { name: "톱니 파지기(래칫)", src: "#21~24 · 축 135 mm, 톱니 턱 12 mm", build(g) { g.add(cyl(1.9, 123, 12)); jaws(g, 12, 2.6, 0.18, 0, true); } },
+  penetrator: { name: "봉합 관통기", src: "#47·#50·#53 · 축 131 mm, 부리 15 mm", build(g) { g.add(cyl(1.5, 116, 15), cone(1.5, 15, 7.5)); } },
+  retriever: { name: "봉합사 회수기(상향)", src: "#00·#25·#26 · 축 130 mm, 끝 8 mm 위로 25°", build(g) {
+    g.add(cyl(1.4, 122, 8)); const k = new THREE.Group(); k.position.y = 8; k.rotation.x = 0.45; const b = cone(1.2, 8, -4); k.add(b); g.add(k); } },
+  scissors: { name: "관절경 가위", src: "#68·#69 · 축 130 mm, 날 9 mm", build(g) {
+    g.add(cyl(1.5, 121, 9)); g.add(box(0.5, 9, 1.4, -0.6, 4.5, 0, 0, 0.12), box(0.5, 9, 1.4, 0.6, 4.5, 0, 0, -0.12)); } },
+  cutter: { name: "봉합사 절단기(슬라이드)", src: "#11~13 · 축 125 mm, 끝 홈 3 mm", build(g) {
+    g.add(cyl(1.3, 122, 3), cyl(1.7, 3, 0)); const s = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 1.2), dark); s.position.y = 1.5; g.add(s); } },
+  knot: { name: "매듭 밀개", src: "#56 · 축 120 mm, 고리 끝", build(g) {
+    g.add(cyl(1.5, 120, 2.5)); const r = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.4, 8, 20), steel); r.position.y = 1.2; g.add(r); } },
+  obturator: { name: "외투관 폐쇄기(투관침)", src: "#05·#17·#18 · 축 145 mm, 직경 5 mm, 뾰족 끝", build(g) { g.add(cyl(2.6, 139, 6), cone(2.6, 6, 3)); } },
+  switching: { name: "교환봉(switching stick)", src: "#19·#20 · 축 190 mm, 직경 4 mm, 둥근 끝", build(g) {
+    g.add(cyl(2, 188, 2)); const s = new THREE.Mesh(new THREE.SphereGeometry(2, 16, 10), steel); s.position.y = 2; g.add(s); } },
+  flip: { name: "FlipCutter 3.5", src: "#33·#34 · 축 219 mm, 직경 3.5 mm, 눈금", build(g) { g.add(cyl(1.75, 216, 3), cone(1.75, 3, 1.5)); } },
+  reamer: { name: "acorn 리머", src: "#45·#46 · 축 150 mm, 머리 직경 9 mm", build(g) { g.add(cyl(2.5, 146, 8), cyl(4.5, 6, 2), cone(4.5, 2, 1)); } },
+  femGuide: { name: "대퇴 조준 가이드 끝(AR-1510FR)", src: "#36·#37 · 팔 95 mm, 갈고리 끝", build(g) {
+    g.add(cyl(2, 91, 6), tube([[0, 8, 0], [0, 3, 0], [0, 0.5, -1.5], [0, 0, -4]], 1.1)); } },
+  guide: { name: "경골 조준 가이드(AR-1510H)", src: "#28 · 팔 107 mm, 끝 갈고리 5 mm. 핀 방향 = 선택 터널 축", build(g) { g.add(cyl(2, 107, 4), cone(1.4, 5, 2.5)); } },
   shaver: { name: "셰이버 4.5 mm", src: "표준 형상(사진 없음) · 직경 4.5 mm, 길이 130 mm", build(g) {
     g.add(cyl(2.25, 128, 2.25)); const s = new THREE.Mesh(new THREE.SphereGeometry(2.25, 20, 12), steel); s.position.y = 2.25; g.add(s);
-    const w = new THREE.Mesh(new THREE.BoxGeometry(2.6, 5, 1), dark); w.position.set(0, 4.5, 1.9); g.add(w);
-  } },
-  curette: { name: "큐렛(curette)", src: "표준 형상 · 축 140 mm, 고리 4 mm", build(g) {
-    g.add(cyl(1.5, 140, 3.5));
-    const r = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.45, 8, 24), steel); r.rotation.y = Math.PI / 2; r.position.y = 1.8; g.add(r);
-  } },
-  knot: { name: "매듭 밀개(knot pusher)", src: "사진 #56 참고 · 축 120 mm", build(g) {
-    g.add(cyl(1.5, 120, 2.5));
-    const r = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.4, 8, 20), steel); r.position.y = 1.2; g.add(r);
-  } },
-  guide: { name: "경골 조준 가이드(AR-1510H)", src: "사진 #28 기준 · 팔 107 mm, 끝 갈고리 5 mm. 핀 방향 = 선택 터널 축", build(g) {
-    g.add(cyl(2, 107, 4));
-    const c = new THREE.Mesh(new THREE.ConeGeometry(1.4, 5, 12), steel); c.rotation.x = Math.PI; c.position.y = 2.5; g.add(c);
-  } },
+    const w = new THREE.Mesh(new THREE.BoxGeometry(2.6, 5, 1), dark); w.position.set(0, 4.5, 1.9); g.add(w); } },
+  curette: { name: "큐렛", src: "표준 형상 · 축 140 mm, 고리 4 mm", build(g) {
+    g.add(cyl(1.5, 140, 3.5)); const r = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.45, 8, 24), steel); r.rotation.y = Math.PI / 2; r.position.y = 1.8; g.add(r); } },
 };
 const toolSel = $("tool");
 toolSel.add(new Option("없음", "none"));
@@ -493,14 +536,20 @@ function setTool(type) {
   if (type !== "none") TOOLS[type].build(tool.grp);
   $("toolSrc").textContent = type === "none" ? "" : TOOLS[type].src;
   tool.P.copy(toolPortal($("tportal").value));
-  aimToolAt(scopeCenterPoint() || medTarget);
+  aimToolAt((scopeCenterPoint() || medTarget).clone().add(new THREE.Vector3(0, 0, 2)), 8);   // aim 2 mm above the surface, park 8 mm short
 }
 function scopeCenterPoint() {
   ray.setFromCamera(new THREE.Vector2(0, 0), scopeCam); ray.far = 300;
   const hit = ray.intersectObjects(solid(), true)[0]; return hit ? hit.point : null;
 }
-function aimToolAt(p) {
-  const v = p.clone().sub(tool.P); tool.d.copy(v.clone().normalize()); tool.depth = v.length(); syncToolUI();
+function aimToolAt(p, back = 0) {
+  const v = p.clone().sub(tool.P); tool.d.copy(v.clone().normalize());
+  let L = v.length();
+  if (back) {                                   // park short of the first surface on the way, not just the target
+    cRay.set(tool.P, tool.d); cRay.far = L;
+    const hit = cRay.intersectObjects(solid(), true)[0]; if (hit) L = hit.distance;
+  }
+  tool.depth = Math.max(5, L - back); syncToolUI();
 }
 function syncToolUI() {
   $("tdepth").value = tool.depth; $("tdepthV").textContent = tool.depth.toFixed(0);
@@ -510,12 +559,12 @@ function updateTool() {
   const on = tool.type !== "none";
   tool.grp.visible = on; sleeve.visible = on && tool.type === "guide"; if (arc) arc.visible = sleeve.visible;
   if (!on) return;
-  const dHit = contactDepth(tool.P, tool.d, tool.depth, 0.3);
-  const dEff = tool.type === "guide" ? tool.depth : dHit;
-  const blocked = tool.depth - dHit > 1;
-  const msg = TOOLS[tool.type].src + (blocked ? (tool.type === "guide"
-      ? ` · 직선 경로가 ${(tool.depth - dHit).toFixed(0)} mm 앞에서 뼈·반월상연골에 막힘(실제 가이드는 휜 끝으로 넘어감)`
-      : ` · ${(tool.depth - dHit).toFixed(0)} mm 앞에서 접촉으로 멈춤`) : "");
+  const c = contact(tool.P, tool.d, tool.depth, 0.3, 3);
+  const dEff = tool.type === "guide" ? tool.depth : c.d;
+  const short = tool.depth - c.d;
+  const msg = TOOLS[tool.type].src + (c.what ? (tool.type === "guide"
+      ? ` · 직선 경로가 ${short.toFixed(0)} mm 앞에서 ${c.what}에 막힘(실제 가이드는 휜 끝으로 넘어감)`
+      : c.soft ? ` · ${c.what}을 누르는 중(최대 3 mm)` : ` · ${c.what}에 닿아 멈춤`) : "");
   if ($("toolSrc").textContent !== msg) $("toolSrc").textContent = msg;
   const tip = tool.P.clone().addScaledVector(tool.d, dEff);
   tool.grp.position.copy(tip);
@@ -532,27 +581,36 @@ function updateTool() {
     arc = new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(handle, mid, end), 24, 3, 8), steel); scene.add(arc);
   }
 }
-toolSel.onchange = (e) => setTool(e.target.value);
-$("tportal").onchange = () => { tool.P.copy(toolPortal($("tportal").value)); aimToolAt(tool.P.clone().addScaledVector(tool.d, tool.depth)); };
+toolSel.onchange = (e) => { setTool(e.target.value); e.target.blur(); };
+$("tportal").onchange = (e) => { tool.P.copy(toolPortal(e.target.value)); aimToolAt(tool.P.clone().addScaledVector(tool.d, tool.depth)); e.target.blur(); };
 $("tdepth").oninput = (e) => { tool.depth = +e.target.value; syncToolUI(); };
 $("troll").oninput = (e) => { tool.roll = +e.target.value; syncToolUI(); };
-$("toolAim").onclick = () => { const p = scopeCenterPoint(); if (p) aimToolAt(p); };
+$("toolAim").onclick = () => { const p = scopeCenterPoint(); if (p) aimToolAt(p.add(new THREE.Vector3(0, 0, 2)), 8); };
 $("guideToTunnel").onclick = () => { if (tool.type !== "guide") { toolSel.value = "guide"; setTool("guide"); } aimToolAt(cur().entry); };
-// Ctrl + drag / wheel in the scope view steer the instrument about its portal
-let tdrag = null;
-cs.addEventListener("pointerdown", (e) => { if (e.ctrlKey && tool.type !== "none") { tdrag = { x: e.clientX, y: e.clientY }; e.stopImmediatePropagation(); } }, true);
-cs.addEventListener("pointermove", (e) => {
-  if (!tdrag) return;
-  const dx = (e.clientX - tdrag.x) * 0.003, dy = (e.clientY - tdrag.y) * 0.003; tdrag = { x: e.clientX, y: e.clientY };
-  const e1 = new THREE.Vector3().crossVectors(tool.d, Z).normalize();
-  tool.d.applyAxisAngle(Z, -dx).applyAxisAngle(e1, -dy).normalize(); e.stopImmediatePropagation();
+
+// instrument steering is keyboard / button only (mouse stays with the scope):
+// arrows = pivot about the portal, W/S = advance/retract (Shift x5), A/D = rotate
+const pitchAxis = () => new THREE.Vector3().crossVectors(tool.d, Z).normalize();
+const STEER = {
+  left: () => tool.d.applyAxisAngle(Z, 0.025), right: () => tool.d.applyAxisAngle(Z, -0.025),
+  up: () => tool.d.applyAxisAngle(pitchAxis(), 0.025), down: () => tool.d.applyAxisAngle(pitchAxis(), -0.025),
+  fwd: (k = 1) => { tool.depth = Math.min(160, tool.depth + k); }, back: (k = 1) => { tool.depth = Math.max(5, tool.depth - k); },
+  rotL: () => { tool.roll = ((tool.roll - 10 + 540) % 360) - 180; }, rotR: () => { tool.roll = ((tool.roll + 10 + 540) % 360) - 180; },
+};
+const KEYS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", w: "fwd", s: "back", a: "rotL", d: "rotR" };
+addEventListener("keydown", (e) => {
+  const act = KEYS[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+  if (!act || tool.type === "none") return;
+  e.preventDefault(); e.stopPropagation();
+  STEER[act](e.shiftKey ? 5 : 1); tool.d.normalize(); syncToolUI();
 }, true);
-cs.addEventListener("pointerup", () => (tdrag = null), true);
-cs.addEventListener("wheel", (e) => {
-  if (!e.ctrlKey || tool.type === "none") return;
-  e.preventDefault(); e.stopImmediatePropagation();
-  tool.depth = THREE.MathUtils.clamp(tool.depth - Math.sign(e.deltaY) * 1.5, 5, 140); syncToolUI();
-}, { capture: true, passive: false });
+// on-screen pad: press and hold repeats
+for (const b of document.querySelectorAll("[data-steer]")) {
+  let timer = null;
+  const go = () => { if (tool.type === "none") return; STEER[b.dataset.steer](); tool.d.normalize(); syncToolUI(); };
+  b.addEventListener("pointerdown", (e) => { e.preventDefault(); go(); clearInterval(timer); timer = setInterval(go, 60); });
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) b.addEventListener(ev, () => clearInterval(timer));
+}
 
 // ---------- render loop
 function resize() {
