@@ -74,8 +74,8 @@
     <label class="row">기구 회전 <input type="range" id="troll" min="-180" max="180" value="0"><output id="trollV"></output></label>
     <div class="chk"><button id="toolAim">화면 중앙으로 겨누기</button><button id="guideToTunnel">가이드 → 선택 터널</button></div>
     <div class="pad">
-      <button data-steer="rotL" title="A">⟲</button><button data-steer="up" title="↑">▲</button><button data-steer="rotR" title="D">⟳</button><button data-steer="fwd" title="W">전진</button>
-      <button data-steer="left" title="←">◀</button><button data-steer="down" title="↓">▼</button><button data-steer="right" title="→">▶</button><button data-steer="back" title="S">후퇴</button>
+      <button data-steer="rotL" title="Q">Q ⟲</button><button data-steer="up" title="W">W ▲</button><button data-steer="rotR" title="E">E ⟳</button><button data-steer="fwd" title="2">2 전진</button>
+      <button data-steer="left" title="A">A ◀</button><button data-steer="down" title="S">S ▼</button><button data-steer="right" title="D">D ▶</button><button data-steer="back" title="X">X 후퇴</button>
     </div>
     <p class="help" id="toolSrc" style="padding:0"></p>
     <h3>표시</h3>
@@ -89,8 +89,8 @@
     <label class="row">사용 <input type="checkbox" id="ton"><span></span></label>
     <table id="ttable"></table>
     <ul class="help">
-      <li>관절경 화면: 끌기 = 경 방향, 휠 = 깊이, Q/E = 렌즈 회전</li>
-      <li>마우스는 관절경 전용. 기구는 화살표 = 방향, W/S = 전진·후퇴(Shift ×5), A/D = 회전, 또는 아래 버튼(누르고 있으면 반복)</li>
+      <li>관절경(마우스): 왼쪽 끌기 = 경 방향, 오른쪽 끌기(좌우) = 30° 렌즈 회전, 휠 = 깊이</li>
+      <li>기구(한 손 키보드): W/A/S/D = 방향, Q/E = 회전, 2 = 전진, X = 후퇴(Shift ×5). 버튼은 누르고 있으면 반복</li>
       <li>뼈에 닿으면 멈추고, 반월상연골·이식편은 3 mm까지 눌림</li>
       <li>포털 높이 = 외측 고평부 관절면 위 거리, 슬개건에서 = 슬개건 가장자리로부터의 거리</li>
       <li>Shift + 클릭(두 화면 모두) = 선택한 터널 입구를 그 자리로 이동</li>
@@ -420,11 +420,13 @@ $("pMed").onclick = () => preset(20, -5, medTarget.clone().add(new THREE.Vector3
 // MM posterior root: tip under the MFC in the medial compartment, lens turned back toward the root
 $("pMmRoot").onclick = () => preset(20, -6, mmRoot.clone().add(new THREE.Vector3(2, -20, 5)), 0, mmRoot);
 
-// scope drag (pivot about the portal), wheel depth, Q/E lens roll
+// scope: left drag = pivot about the portal, right drag (horizontal) = 30° lens roll, wheel = depth
+// (Q/E also roll the lens while no instrument is selected)
 let drag = null;
+cs.addEventListener("contextmenu", (e) => e.preventDefault());
 cs.addEventListener("pointerdown", (e) => {
   if (e.shiftKey) { placeFromScope(e); return; }
-  drag = { x: e.clientX, y: e.clientY }; cs.setPointerCapture(e.pointerId);
+  drag = { x: e.clientX, y: e.clientY, roll: e.button === 2 }; cs.setPointerCapture(e.pointerId);
 });
 const KO = { tibia: "경골 고평부", femur: "대퇴과", patella: "슬개골", lm_remnant: "잔존 외측 반월상연골", mm: "내측 반월상연골",
   acl: "기존 ACL 이식건", pcl: "PCL", fatpad: "지방체", ptendon: "슬개건", graft_A: "이식편 A", graft_B: "이식편 B" };
@@ -444,13 +446,15 @@ function scopeNdc(e) {
 let hoverText = "";
 cs.addEventListener("pointermove", (e) => {
   if (!drag) { const p = scopeNdc(e); hoverText = p ? pickName(p) : ""; return; }
-  const dx = (e.clientX - drag.x) * 0.004, dy = (e.clientY - drag.y) * 0.004; drag = { x: e.clientX, y: e.clientY };
+  const dx = (e.clientX - drag.x) * 0.004, dy = (e.clientY - drag.y) * 0.004; drag = { x: e.clientX, y: e.clientY, roll: drag.roll };
+  if (drag.roll) { scope.roll = ((scope.roll + dx * 120 + 540) % 360) - 180; syncScopeUI(); return; }
   const { e1 } = scopeBasis();
   scope.d.applyAxisAngle(Z, -dx).applyAxisAngle(e1, -dy).normalize();
 });
 cs.addEventListener("pointerup", () => (drag = null));
 cs.addEventListener("wheel", (e) => { e.preventDefault(); scope.depth = THREE.MathUtils.clamp(scope.depth - Math.sign(e.deltaY) * 2, 5, 90); syncScopeUI(); }, { passive: false });
 addEventListener("keydown", (e) => {
+  if (tool.type !== "none") return;                         // Q/E belong to the instrument while one is selected
   if (e.key === "q" || e.key === "Q") scope.roll = ((scope.roll - 10 + 540) % 360) - 180;
   if (e.key === "e" || e.key === "E") scope.roll = ((scope.roll + 10 + 540) % 360) - 180;
   syncScopeUI();
@@ -589,7 +593,7 @@ $("toolAim").onclick = () => { const p = scopeCenterPoint(); if (p) aimToolAt(p.
 $("guideToTunnel").onclick = () => { if (tool.type !== "guide") { toolSel.value = "guide"; setTool("guide"); } aimToolAt(cur().entry); };
 
 // instrument steering is keyboard / button only (mouse stays with the scope):
-// arrows = pivot about the portal, W/S = advance/retract (Shift x5), A/D = rotate
+// see KEYS below; Shift x5 for advance/retract
 const pitchAxis = () => new THREE.Vector3().crossVectors(tool.d, Z).normalize();
 const STEER = {
   left: () => tool.d.applyAxisAngle(Z, 0.025), right: () => tool.d.applyAxisAngle(Z, -0.025),
@@ -597,11 +601,13 @@ const STEER = {
   fwd: (k = 1) => { tool.depth = Math.min(160, tool.depth + k); }, back: (k = 1) => { tool.depth = Math.max(5, tool.depth - k); },
   rotL: () => { tool.roll = ((tool.roll - 10 + 540) % 360) - 180; }, rotR: () => { tool.roll = ((tool.roll + 10 + 540) % 360) - 180; },
 };
-const KEYS = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", w: "fwd", s: "back", a: "rotL", d: "rotR" };
+// one-hand layout: W/A/S/D = direction, Q/E = rotate, 2 = advance, X = retract (arrows also steer)
+const KEYS = { w: "up", s: "down", a: "left", d: "right", q: "rotL", e: "rotR", "2": "fwd", "@": "fwd", x: "back",
+               ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 addEventListener("keydown", (e) => {
   const act = KEYS[e.key.length === 1 ? e.key.toLowerCase() : e.key];
   if (!act || tool.type === "none") return;
-  e.preventDefault(); e.stopPropagation();
+  e.preventDefault(); e.stopImmediatePropagation();          // keep Q/E from also rolling the lens
   STEER[act](e.shiftKey ? 5 : 1); tool.d.normalize(); syncToolUI();
 }, true);
 // on-screen pad: press and hold repeats
